@@ -2,9 +2,6 @@
 /* NOTES */
 /*********/
 // À tester dans la durée pour voir si on perd la connexion ou pas.
-// Quand ça tourne plus, les aiguillent restent bloquées en position, pas de retour à Zero.
-// Comment tester si une interruption n'a pas eu lieu depuis plus de 60 sec (1 rpm) ? -> vitEolRPM = rpmVent= 0
-// Mettre le module en veille quand aucune interruption n'a lieu.
 
 #include <ESP8266WebServer.h>
 #include <FS.h>
@@ -18,13 +15,17 @@ ESP8266WebServer server ( 8080 );   // on instancie un serveur ecoutant sur le p
 #define pinHallAnemo D2   // le capteur à effet Hall est connecté à la pin D2
 #define pinHallEol D1   // le second capteur à effet Hall est connecté à la pin D3
 #define ssid      "xxxx"    // WiFi SSID
-#define password  "XXXX"  // WiFi password
+#define password  "****"  // WiFi password
 unsigned long rpmVent = 0;
 unsigned long rpmEol = 0;
 unsigned long vitVentKMH = 0;
 unsigned long vitEolRPM = 0;
 unsigned long dateDernierChangementVent = 0;
 unsigned long dateDernierChangementEol = 0;
+unsigned long dateDernierChangementRPM = 0;
+unsigned long dateDernierChangementKMH = 0;
+float intervalleKMH = 0;
+float intervalleRPM = 0;
 
 /*********/
 /* SETUP */
@@ -74,12 +75,12 @@ void setup() {
 void rpm_vent()   // appelée par l'interruption, Anémomètre vitesse du vent.
 { 
   unsigned long dateCourante = millis();
-  float intervalle = (dateCourante - dateDernierChangementVent);
+  intervalleKMH = (dateCourante - dateDernierChangementVent);
   Serial.print ( "intervalle en s : " );
-  Serial.println (intervalle/1000); // affiche l'intervalle de temps entre deux passages
-  if (intervalle != 0)  // attention si intervalle = 0, division par zero -> erreur
+  Serial.println (intervalleKMH/1000); // affiche l'intervalle de temps entre deux passages
+  if (intervalleKMH != 0)  // attention si intervalle = 0, division par zero -> erreur
   {
-    rpmVent = 60 / (intervalle /1000);  
+    rpmVent = 60 / (intervalleKMH /1000);  
   }
   vitVentKMH = ( rpmVent + 6.174 ) / 8.367;
   Serial.print ( "vitVentKMH : " );
@@ -88,21 +89,23 @@ void rpm_vent()   // appelée par l'interruption, Anémomètre vitesse du vent.
   dateDernierChangementVent = dateCourante;
 }
 
+
 void rpm_eol()    // appelée par l'interruption, Tachométre rotation éolienne.
 {
   unsigned long dateCourante = millis();
-  float intervalle = (dateCourante - dateDernierChangementEol);
+  intervalleRPM = (dateCourante - dateDernierChangementEol);
   Serial.print ( "intervalle en s : " );
-  Serial.println (intervalle/1000); // affiche l'intervalle de temps entre deux passages
-  if (intervalle != 0)  // attention si intervalle = 0, division par zero -> erreur
+  Serial.println (intervalleRPM/1000); // affiche l'intervalle de temps entre deux passages
+  if (intervalleRPM != 0)  // attention si intervalle = 0, division par zero -> erreur
   {  
-    vitEolRPM = 60 / (intervalle /1000);
+    vitEolRPM = 60 / (intervalleRPM /1000);
   }
   Serial.print ( "rpm : " );
   Serial.println ( vitEolRPM ); // affiche les rpm  
   Serial.println ( "" );
   dateDernierChangementEol = dateCourante;
 }
+
 
 void sendMesures()    // appelée par le serveur web
 {  
@@ -116,12 +119,48 @@ void sendMesures()    // appelée par le serveur web
 //  Serial.println("Mesures envoyees");
 }
 
+
+void RemiseZeroVitVentKMH ()
+{
+  unsigned long dateCouranteKMH = millis();
+  if (intervalleKMH == intervalleKMH) // Si ça ne tourne plus (valeur plus mise à jour)
+  {  
+    float dureeKMH = (dateCouranteKMH - dateDernierChangementKMH);
+    if (dureeKMH > 10000) // Si ça ne tourne plus depuis 10 secondes
+    {
+      Serial.print ( "dureeKMH : " );
+      Serial.println ( dureeKMH ); // affiche les rpm  
+      vitVentKMH = 0;  // Remsise à zero !
+      dateDernierChangementKMH = dateCouranteKMH;    
+    }
+  }
+}
+
+
+void RemiseZeroVitEolRPM ()
+{
+  unsigned long dateCouranteRPM = millis();
+  if (intervalleRPM == intervalleRPM) // Si ça ne tourne plus (valeur plus mise à jour)
+  {  
+    float dureeRPM = (dateCouranteRPM - dateDernierChangementRPM);
+    if (dureeRPM > 65000) // Si ça ne tourne plus depuis 65 secondes (soit moins de 1 rpm)
+    {
+      Serial.print ( "dureeRPM : " );
+      Serial.println ( dureeRPM ); // affiche les rpm  
+      vitEolRPM = 0;  // Remsise à zero !
+      dateDernierChangementRPM = dateCouranteRPM;    
+    }
+  }
+}
+
 /*************/
 /* PROGRAMME */
 /*************/
 void loop()
 {
   server.handleClient();  // à chaque iteration, on appelle handleClient pour que les requetes soient traitees
-//  delay(100); // la boucle fait tourner sendMesures(), via handleClient, régler delais si besoin de mettre à jour le JSON qu'à une fréquence voulue plutôt qu'instantanément 
+  RemiseZeroVitEolRPM ();
+  RemiseZeroVitVentKMH ();
+  delay(100); // la boucle fait tourner sendMesures(), via handleClient, régler delais si besoin de mettre à jour le JSON qu'à une fréquence voulue plutôt qu'instantanément 
   ArduinoOTA.handle();  // régler upload speed à 9600 : verifie si un upload de programme Arduino est envoyé sur l'ESP8266
 }
