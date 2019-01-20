@@ -90,7 +90,7 @@ void rpm_vent()   // appelée par l'interruption, Anémomètre vitesse du vent.
 }
 
 
-void rpm_eol()    // appelée par l'interruption, Tachométre rotation éolienne.
+void rpm_eol()    // appelée par l'interruption, Tachymétre rotation éolienne.
 {
   unsigned long dateCourante = millis();
   intervalleRPM = (dateCourante - dateDernierChangementEol);
